@@ -1,0 +1,449 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>15-Minute Awareness Log</title>
+    
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- React & ReactDOM -->
+    <script crossorigin src="https://unpkg.com/react@18/umd/react.development.js"></script>
+    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+    
+    <!-- Babel for JSX -->
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+
+    <style>
+        /* Smooth scrolling for the whole page */
+        html { scroll-behavior: smooth; }
+        body { -webkit-tap-highlight-color: transparent; }
+    </style>
+</head>
+<body>
+    <div id="root"></div>
+
+    <script type="text/babel">
+        const { useState, useEffect, useRef } = React;
+
+        // --- Icons (Inline SVGs to replace Lucide dependency) ---
+        const Icon = ({ children, size = 24, className = "" }) => (
+            <svg 
+                xmlns="http://www.w3.org/2000/svg" 
+                width={size} 
+                height={size} 
+                viewBox="0 0 24 24" 
+                fill="none" 
+                stroke="currentColor" 
+                strokeWidth="2" 
+                strokeLinecap="round" 
+                strokeLinejoin="round" 
+                className={className}
+            >
+                {children}
+            </svg>
+        );
+
+        const Clock = (props) => <Icon {...props}><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></Icon>;
+        const Trash2 = (props) => <Icon {...props}><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/><line x1="10" x2="10" y1="11" y2="17"/><line x1="14" x2="14" y1="11" y2="17"/></Icon>;
+        const Activity = (props) => <Icon {...props}><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></Icon>;
+        const Zap = (props) => <Icon {...props}><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></Icon>;
+        const Coffee = (props) => <Icon {...props}><path d="M17 8h1a4 4 0 1 1 0 8h-1"/><path d="M3 8h14v9a4 4 0 0 1-4 4H7a4 4 0 0 1-4-4Z"/><line x1="6" x2="6" y1="2" y2="4"/><line x1="10" x2="10" y1="2" y2="4"/><line x1="14" x2="14" y1="2" y2="4"/></Icon>;
+        const AlertCircle = (props) => <Icon {...props}><circle cx="12" cy="12" r="10"/><line x1="12" x2="12" y1="8" y2="12"/><line x1="12" x2="12.01" y1="16" y2="16"/></Icon>;
+        const ChevronLeft = (props) => <Icon {...props}><path d="m15 18-6-6 6-6"/></Icon>;
+        const ChevronRight = (props) => <Icon {...props}><path d="m9 18 6-6-6-6"/></Icon>;
+        const CalendarIcon = (props) => <Icon {...props}><rect width="18" height="18" x="3" y="4" rx="2" ry="2"/><line x1="16" x2="16" y1="2" y2="6"/><line x1="8" x2="8" y1="2" y2="6"/><line x1="3" x2="21" y1="10" y2="10"/></Icon>;
+        const Copy = (props) => <Icon {...props}><rect width="14" height="14" x="8" y="8" rx="2" ry="2"/><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/></Icon>;
+        const Check = (props) => <Icon {...props}><polyline points="20 6 9 17 4 12"/></Icon>;
+
+        // --- Constants & Config ---
+
+        const CATEGORIES = {
+            focus: { label: 'Deep Focus', color: 'bg-emerald-100 text-emerald-800 border-emerald-300', icon: Zap },
+            admin: { label: 'Shallow/Admin', color: 'bg-blue-100 text-blue-800 border-blue-300', icon: Activity },
+            life: { label: 'Life/Rest', color: 'bg-orange-100 text-orange-800 border-orange-300', icon: Coffee },
+            wasted: { label: 'Distracted', color: 'bg-rose-100 text-rose-800 border-rose-300', icon: AlertCircle },
+            unset: { label: 'Uncategorized', color: 'bg-gray-50 text-gray-400 border-gray-200', icon: Clock },
+        };
+
+        const generateDaySlots = () => {
+            const slots = [];
+            for (let h = 0; h < 24; h++) {
+                for (let m = 0; m < 60; m += 15) {
+                    const id = `${h.toString().padStart(2, '0')}:${m.toString().padStart(2, '0')}`;
+                    const hour12 = h % 12 || 12;
+                    const ampm = h < 12 ? 'AM' : 'PM';
+                    const timeLabel = `${hour12}:${m.toString().padStart(2, '0')} ${ampm}`;
+                    
+                    slots.push({
+                        id,
+                        timeLabel,
+                        activity: '',
+                        category: 'unset',
+                        timestamp: h * 60 + m
+                    });
+                }
+            }
+            return slots;
+        };
+
+        const formatDateKey = (date) => {
+            return date.toISOString().split('T')[0];
+        };
+
+        const getRelativeDateLabel = (date) => {
+            const today = new Date();
+            const d = new Date(date);
+            
+            if (formatDateKey(today) === formatDateKey(d)) return "Today";
+            
+            const yesterday = new Date();
+            yesterday.setDate(yesterday.getDate() - 1);
+            if (formatDateKey(yesterday) === formatDateKey(d)) return "Yesterday";
+            
+            const tomorrow = new Date();
+            tomorrow.setDate(tomorrow.getDate() + 1);
+            if (formatDateKey(tomorrow) === formatDateKey(d)) return "Tomorrow";
+
+            return d.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' });
+        };
+
+        // --- Sub-Components ---
+
+        const ProgressBar = ({ slots }) => {
+            const totalLogged = slots.filter(s => s.category !== 'unset').length;
+            if (totalLogged === 0) return null;
+
+            const counts = slots.reduce((acc, slot) => {
+                if (slot.category !== 'unset') {
+                    acc[slot.category] = (acc[slot.category] || 0) + 1;
+                }
+                return acc;
+            }, {});
+
+            const getWidth = (cat) => {
+                return ((counts[cat] || 0) / totalLogged) * 100;
+            };
+
+            return (
+                <div className="w-full h-4 flex rounded-full overflow-hidden mt-4 shadow-sm border border-gray-100">
+                    <div style={{ width: `${getWidth('focus')}%` }} className="bg-emerald-400" title="Deep Focus" />
+                    <div style={{ width: `${getWidth('admin')}%` }} className="bg-blue-400" title="Admin" />
+                    <div style={{ width: `${getWidth('life')}%` }} className="bg-orange-300" title="Life" />
+                    <div style={{ width: `${getWidth('wasted')}%` }} className="bg-rose-400" title="Wasted" />
+                </div>
+            );
+        };
+
+        const StatCard = ({ label, value, subtext, colorClass }) => (
+            <div className={`p-4 rounded-xl border ${colorClass} bg-opacity-50 flex flex-col items-center justify-center text-center`}>
+                <span className="text-xs uppercase tracking-wider font-semibold opacity-70 mb-1">{label}</span>
+                <span className="text-2xl font-bold">{value}</span>
+                <span className="text-xs opacity-60 mt-1">{subtext}</span>
+            </div>
+        );
+
+        // --- Main App Component ---
+
+        function TimeTracker() {
+            const [selectedDate, setSelectedDate] = useState(new Date());
+            const [slots, setSlots] = useState([]);
+            const [activeSlotId, setActiveSlotId] = useState(null);
+            const scrollRef = useRef(null);
+            const [nowId, setNowId] = useState("");
+            const [copied, setCopied] = useState(false);
+
+            // Load Data on Date Change
+            useEffect(() => {
+                const key = `tracker-${formatDateKey(selectedDate)}`;
+                const saved = localStorage.getItem(key);
+                if (saved) {
+                    setSlots(JSON.parse(saved));
+                } else {
+                    setSlots(generateDaySlots());
+                }
+            }, [selectedDate]);
+
+            // Save Data on Change
+            useEffect(() => {
+                const key = `tracker-${formatDateKey(selectedDate)}`;
+                if (slots.length > 0) {
+                    localStorage.setItem(key, JSON.stringify(slots));
+                }
+            }, [slots, selectedDate]);
+
+            // Clock Ticker
+            useEffect(() => {
+                const updateCurrentTime = () => {
+                    const now = new Date();
+                    const h = now.getHours();
+                    const m = Math.floor(now.getMinutes() / 15) * 15;
+                    const id = `${h.toString().padStart(2, '0')}:${m.toString().padStart(2, '0')}`;
+                    setNowId(id);
+                };
+
+                updateCurrentTime();
+                const interval = setInterval(updateCurrentTime, 60000); 
+                return () => clearInterval(interval);
+            }, []);
+
+            // Scroll to current time logic
+            useEffect(() => {
+                const isToday = formatDateKey(selectedDate) === formatDateKey(new Date());
+                // Simple auto-scroll on first load if it is today
+                if (isToday && nowId && slots.length > 0 && !window.hasScrolledInitial) {
+                    setTimeout(() => {
+                        const el = document.getElementById(`slot-${nowId}`);
+                        if (el) {
+                            el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                            window.hasScrolledInitial = true;
+                        }
+                    }, 500);
+                }
+            }, [nowId, selectedDate, slots.length]);
+
+            const updateSlot = (id, updates) => {
+                setSlots(prev => prev.map(s => s.id === id ? { ...s, ...updates } : s));
+            };
+
+            const changeDay = (offset) => {
+                const newDate = new Date(selectedDate);
+                newDate.setDate(newDate.getDate() + offset);
+                setSelectedDate(newDate);
+                setCopied(false);
+            };
+
+            const jumpToToday = () => {
+                setSelectedDate(new Date());
+                setTimeout(() => {
+                    const el = document.getElementById(`slot-${nowId}`);
+                    el?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                }, 100);
+            };
+
+            const clearData = () => {
+                if (confirm("Are you sure? This will wipe the log for this specific day.")) {
+                    setSlots(generateDaySlots());
+                }
+            };
+
+            const copyToClipboard = () => {
+                // Format for Google Sheets (Tab Separated)
+                const header = "Time\tCategory\tActivity\n";
+                const body = slots
+                    .filter(s => s.activity || s.category !== 'unset')
+                    .map(s => `${s.timeLabel}\t${CATEGORIES[s.category].label}\t${s.activity}`)
+                    .join('\n');
+                
+                const text = header + body;
+                
+                // Fallback for copying
+                const textArea = document.createElement("textarea");
+                textArea.value = text;
+                document.body.appendChild(textArea);
+                textArea.select();
+                try {
+                    document.execCommand('copy');
+                    setCopied(true);
+                    setTimeout(() => setCopied(false), 2000);
+                } catch (err) {
+                    console.error('Failed to copy', err);
+                }
+                document.body.removeChild(textArea);
+            };
+
+            // Stats Logic
+            const loggedSlots = slots.filter(s => s.category !== 'unset');
+            const totalHoursLogged = loggedSlots.length * 0.25;
+            const focusHours = slots.filter(s => s.category === 'focus').length * 0.25;
+            const wastedHours = slots.filter(s => s.category === 'wasted').length * 0.25;
+            const efficiency = totalHoursLogged > 0 ? Math.round((focusHours / totalHoursLogged) * 100) : 0;
+            const isToday = formatDateKey(selectedDate) === formatDateKey(new Date());
+
+            return (
+                <div className="min-h-screen bg-gray-50 text-gray-800 font-sans selection:bg-indigo-100 pb-24">
+                    
+                    {/* Header */}
+                    <div className="sticky top-0 z-20 bg-white/80 backdrop-blur-md border-b border-gray-200 shadow-sm">
+                        <div className="max-w-3xl mx-auto px-4 py-3">
+                            {/* Top Row: Title & Actions */}
+                            <div className="flex justify-between items-center mb-4">
+                                <h1 className="text-xl font-bold text-gray-900 flex items-center gap-2">
+                                    <Clock className="w-5 h-5 text-indigo-600" />
+                                    <span className="hidden sm:inline">15-Minute Log</span>
+                                    <span className="sm:hidden">Log</span>
+                                </h1>
+
+                                <div className="flex gap-2">
+                                    {/* Date Nav */}
+                                    <div className="flex items-center bg-gray-100 rounded-lg p-1 mr-2">
+                                        <button onClick={() => changeDay(-1)} className="p-1 hover:bg-white rounded-md transition-all shadow-sm">
+                                            <ChevronLeft size={16} />
+                                        </button>
+                                        <span className="px-3 text-xs font-semibold min-w-[80px] text-center">
+                                            {getRelativeDateLabel(selectedDate)}
+                                        </span>
+                                        <button onClick={() => changeDay(1)} className="p-1 hover:bg-white rounded-md transition-all shadow-sm">
+                                            <ChevronRight size={16} />
+                                        </button>
+                                    </div>
+
+                                    <button 
+                                        onClick={copyToClipboard}
+                                        className={`flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${copied ? 'bg-green-100 text-green-700' : 'bg-indigo-50 text-indigo-600 hover:bg-indigo-100'}`}
+                                        title="Copy for Google Sheets"
+                                    >
+                                        {copied ? <Check size={14} /> : <Copy size={14} />}
+                                        <span className="hidden sm:inline">{copied ? 'Copied' : 'Export'}</span>
+                                    </button>
+                                    
+                                    <button 
+                                        onClick={clearData}
+                                        className="p-2 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors"
+                                        title="Reset Day"
+                                    >
+                                        <Trash2 className="w-4 h-4" />
+                                    </button>
+                                </div>
+                            </div>
+
+                            {/* Stats Bar */}
+                            <div className="grid grid-cols-3 gap-2">
+                                <StatCard 
+                                    label="Logged" 
+                                    value={`${totalHoursLogged}h`} 
+                                    subtext="Total Time" 
+                                    colorClass="bg-gray-50 border-gray-200 text-gray-600"
+                                />
+                                <StatCard 
+                                    label="Deep Work" 
+                                    value={`${focusHours}h`} 
+                                    subtext={`${efficiency}% of logged`} 
+                                    colorClass="bg-emerald-50 border-emerald-200 text-emerald-700"
+                                />
+                                <StatCard 
+                                    label="Lost Time" 
+                                    value={`${wastedHours}h`} 
+                                    subtext="Distracted" 
+                                    colorClass="bg-rose-50 border-rose-200 text-rose-700"
+                                />
+                            </div>
+                            <ProgressBar slots={slots} />
+                        </div>
+                    </div>
+
+                    {/* Main List */}
+                    <div className="max-w-3xl mx-auto px-2 sm:px-4 mt-6 space-y-1" ref={scrollRef}>
+                        {slots.map((slot) => {
+                            const isCurrentSlot = isToday && slot.id === nowId;
+                            const isActive = activeSlotId === slot.id;
+                            const CategoryIcon = CATEGORIES[slot.category].icon;
+
+                            return (
+                                <div 
+                                    key={slot.id} 
+                                    id={`slot-${slot.id}`}
+                                    className={`
+                                        group relative flex items-center gap-3 p-3 rounded-xl transition-all duration-200 border
+                                        ${isCurrentSlot ? 'bg-white border-indigo-300 ring-2 ring-indigo-100 shadow-md scale-[1.01] z-10' : 'bg-white border-transparent hover:border-gray-200'}
+                                        ${isActive ? 'shadow-lg border-indigo-200 bg-indigo-50/30' : ''}
+                                    `}
+                                >
+                                    {/* Time Column */}
+                                    <div className={`flex flex-col items-end w-16 flex-shrink-0 ${isCurrentSlot ? 'text-indigo-600 font-bold' : 'text-gray-400'}`}>
+                                        <span className="text-sm">{slot.timeLabel}</span>
+                                        {isCurrentSlot && <span className="text-[10px] uppercase tracking-wide text-indigo-400 font-bold animate-pulse">Now</span>}
+                                    </div>
+
+                                    {/* Input Area */}
+                                    <div className="flex-grow">
+                                        <input
+                                            type="text"
+                                            placeholder={isCurrentSlot ? "What are you doing right now?" : "What did you do?"}
+                                            className={`w-full bg-transparent outline-none text-sm sm:text-base placeholder-gray-300 ${slot.category === 'wasted' ? 'text-gray-500 line-through' : 'text-gray-800'}`}
+                                            value={slot.activity}
+                                            onChange={(e) => updateSlot(slot.id, { activity: e.target.value })}
+                                            onFocus={() => setActiveSlotId(slot.id)}
+                                            onBlur={() => setActiveSlotId(null)}
+                                        />
+                                    </div>
+
+                                    {/* Category Selector (Visible on hover or active or if set) */}
+                                    <div className={`
+                                        flex items-center gap-1 transition-opacity duration-200
+                                        ${(isActive || slot.activity || slot.category !== 'unset') ? 'opacity-100' : 'opacity-0 group-hover:opacity-50'}
+                                    `}>
+                                        
+                                        {slot.category === 'unset' ? (
+                                            // Selector Buttons
+                                            <div className="flex gap-1">
+                                                {Object.keys(CATEGORIES).filter(c => c !== 'unset').map((cat) => {
+                                                    const IconComponent = CATEGORIES[cat].icon;
+                                                    return (
+                                                        <button
+                                                            key={cat}
+                                                            onClick={() => updateSlot(slot.id, { category: cat })}
+                                                            className={`p-1.5 rounded-md hover:scale-110 transition-transform ${CATEGORIES[cat].color.replace('text-', 'bg-').replace('100', '500').replace('800', 'white')}`}
+                                                            title={CATEGORIES[cat].label}
+                                                        >
+                                                            <IconComponent size={14} className="text-current" />
+                                                        </button>
+                                                    );
+                                                })}
+                                            </div>
+                                        ) : (
+                                            // Selected State
+                                            <button 
+                                                onClick={() => updateSlot(slot.id, { category: 'unset' })}
+                                                className={`
+                                                    flex items-center gap-2 px-3 py-1 rounded-full text-xs font-medium border cursor-pointer hover:opacity-80
+                                                    ${CATEGORIES[slot.category].color}
+                                                `}
+                                            >
+                                                <CategoryIcon size={12} />
+                                                <span className="hidden sm:inline">{CATEGORIES[slot.category].label}</span>
+                                            </button>
+                                        )}
+                                    </div>
+                                </div>
+                            );
+                        })}
+                    </div>
+
+                    {/* Floating Action Button for Today */}
+                    {!isToday && (
+                        <button
+                            onClick={jumpToToday}
+                            className="fixed bottom-6 right-6 bg-indigo-600 text-white p-4 rounded-full shadow-xl hover:bg-indigo-700 transition-colors z-30"
+                            title="Jump to Today"
+                        >
+                            <CalendarIcon size={24} />
+                        </button>
+                    )}
+
+                    {/* Legend Footer */}
+                    <div className="fixed bottom-6 left-1/2 -translate-x-1/2 bg-white/90 backdrop-blur border border-gray-200 shadow-xl rounded-full px-6 py-3 hidden sm:flex gap-6 text-xs text-gray-500 z-30">
+                        <div className="flex items-center gap-2">
+                            <Zap size={14} className="text-emerald-500" /> Deep Work
+                        </div>
+                        <div className="flex items-center gap-2">
+                            <Activity size={14} className="text-blue-500" /> Admin
+                        </div>
+                        <div className="flex items-center gap-2">
+                            <Coffee size={14} className="text-orange-500" /> Life
+                        </div>
+                        <div className="flex items-center gap-2">
+                            <AlertCircle size={14} className="text-rose-500" /> Wasted
+                        </div>
+                    </div>
+
+                </div>
+            );
+        }
+
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(<TimeTracker />);
+    </script>
+</body>
+</html>
